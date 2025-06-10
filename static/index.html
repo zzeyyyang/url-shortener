@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Shortener</title>
+    <link rel="icon" href="/static/img/favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/logo-512.png">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>URL Shortener</h1>
+        <form id="shorten-form">
+            <input type="url" id="long_url" name="long_url" placeholder="Enter a long URL" required>
+            <input type="text" id="custom_slug" name="custom_slug" placeholder="Optional custom slug">
+            <button type="submit">Shorten</button>
+        </form>
+        <div id="result" style="display:none;"></div>
+        <div id="error" style="display:none;"></div>
+
+        <h2>Shortened URLs</h2>
+        <table id="urls-table">
+            <thead>
+                <tr>
+                    <th>Short URL</th>
+                    <th>Original URL</th>
+                    <th>Clicks</th>
+                    <th>Created</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="urls-tbody">
+                <!-- URL rows will be inserted here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const shortenForm = document.getElementById('shorten-form');
+        const resultDiv = document.getElementById('result');
+        const errorDiv = document.getElementById('error');
+
+        function displayError(message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            resultDiv.style.display = 'none';
+        }
+
+        shortenForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const longUrl = document.getElementById('long_url').value;
+            const customSlug = document.getElementById('custom_slug').value;
+
+            resultDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+
+            const body = { long_url: longUrl };
+            if (customSlug) {
+                body.custom_slug = customSlug;
+            }
+
+            try {
+                const response = await fetch('/api/shorten', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'An unknown error occurred.');
+                }
+
+                const data = await response.json();
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = `
+                    Short URL: <a href="${data.short_url}" target="_blank">${data.short_url}</a>
+                `;
+                
+                loadUrls(); // Refresh the list
+            } catch (err) {
+                displayError(err.message);
+            }
+        });
+
+        async function loadUrls() {
+            try {
+                const response = await fetch('/api/urls');
+                if (!response.ok) {
+                    throw new Error('Failed to load URLs.');
+                }
+                const urls = await response.json();
+                const tbody = document.getElementById('urls-tbody');
+                tbody.innerHTML = '';
+
+                urls.forEach(url => {
+                    const tr = document.createElement('tr');
+                    
+                    const shortUrl = new URL(url.short_url);
+                    const displayShortUrl = shortUrl.pathname.substring(1);
+
+                    tr.innerHTML = `
+                        <td><a href="/${displayShortUrl}" target="_blank">${displayShortUrl}</a></td>
+                        <td><a href="${url.long_url}" target="_blank" title="${url.long_url}">${truncate(url.long_url, 50)}</a></td>
+                        <td>${url.clicks}</td>
+                        <td>${new Date(url.created_at).toLocaleString()}</td>
+                        <td>
+                            <button class="delete-btn" onclick="deleteUrl('${displayShortUrl}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                displayError(err.message);
+            }
+        }
+
+        function truncate(str, maxLength) {
+            return str.length > maxLength ? str.substring(0, maxLength) + '…' : str;
+        }
+
+        async function deleteUrl(slug) {
+            if (!confirm(`Are you sure you want to delete the URL with slug "${slug}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/urls/${slug}`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to delete URL.');
+                }
+
+                loadUrls(); // Refresh the list
+            } catch (err) {
+                displayError(err.message);
+            }
+        }
+
+        // Load URLs on page load
+        window.addEventListener('load', loadUrls);
+
+        // Refresh the URL list when the window regains focus
+        window.addEventListener('focus', loadUrls);
+    </script>
+</body>
+</html>
