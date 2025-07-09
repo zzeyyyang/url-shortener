@@ -10,41 +10,114 @@
 </head>
 <body>
     <div class="container">
-        <h1>URL Shortener</h1>
-        <form id="shorten-form">
-            <input type="url" id="long_url" name="long_url" placeholder="Enter a long URL" required>
-            <input type="text" id="custom_slug" name="custom_slug" placeholder="Optional custom slug">
-            <button type="submit">Shorten</button>
-        </form>
+        <div class="header-section">
+            <h1>URL Shortener</h1>
+            <p class="subtitle">Transform long URLs into short, shareable links</p>
+        </div>
+        
+        <div class="form-section">
+            <form id="shorten-form">
+                <div class="form-group">
+                    <label class="form-label" for="long_url">Long URL</label>
+                    <input type="url" id="long_url" name="long_url" placeholder="https://example.com/your-very-long-url" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="custom_slug">Custom Slug (Optional)</label>
+                    <input type="text" id="custom_slug" name="custom_slug" placeholder="my-custom-link">
+                </div>
+                <button type="submit">Shorten URL</button>
+            </form>
+        </div>
         <div id="result" style="display:none;"></div>
         <div id="error" style="display:none;"></div>
 
-        <h2>Shortened URLs</h2>
-        <table id="urls-table">
-            <thead>
-                <tr>
-                    <th>Short URL</th>
-                    <th>Original URL</th>
-                    <th>Clicks</th>
-                    <th>Created</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody id="urls-tbody">
-                <!-- URL rows will be inserted here -->
-            </tbody>
-        </table>
+        <h2>📊 Shortened URLs</h2>
+        <div class="table-section">
+            <table id="urls-table">
+                <thead>
+                    <tr>
+                        <th>Short URL</th>
+                        <th>Original URL</th>
+                        <th>Clicks</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="urls-tbody">
+                    <!-- URL rows will be inserted here -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
         const shortenForm = document.getElementById('shorten-form');
         const resultDiv = document.getElementById('result');
         const errorDiv = document.getElementById('error');
+        const formSection = document.querySelector('.form-section');
+        const tableSection = document.querySelector('.table-section');
+        const submitButton = document.querySelector('button[type="submit"]');
 
         function displayError(message) {
-            errorDiv.textContent = message;
+            errorDiv.innerHTML = `
+                <div class="error-header">
+                    <span class="icon">⚠️</span>
+                    <span>Error</span>
+                </div>
+                <div>${message}</div>
+            `;
             errorDiv.style.display = 'block';
             resultDiv.style.display = 'none';
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const copyBtn = document.querySelector('.copy-btn');
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = 'Copied!';
+                copyBtn.classList.add('copied');
+                
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.classList.add('show'), 100);
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => document.body.removeChild(notification), 300);
+            }, 3000);
+        }
+
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                submitButton.disabled = true;
+                submitButton.classList.add('loading');
+                formSection.classList.add('form-loading');
+            } else {
+                submitButton.disabled = false;
+                submitButton.classList.remove('loading');
+                formSection.classList.remove('form-loading');
+            }
+        }
+
+        function setTableLoadingState(isLoading) {
+            if (isLoading) {
+                tableSection.classList.add('table-loading');
+            } else {
+                tableSection.classList.remove('table-loading');
+            }
         }
 
         shortenForm.addEventListener('submit', async function (e) {
@@ -54,6 +127,7 @@
 
             resultDiv.style.display = 'none';
             errorDiv.style.display = 'none';
+            setLoadingState(true);
 
             const body = { long_url: longUrl };
             if (customSlug) {
@@ -75,16 +149,35 @@
                 const data = await response.json();
                 resultDiv.style.display = 'block';
                 resultDiv.innerHTML = `
-                    Short URL: <a href="${data.short_url}" target="_blank">${data.short_url}</a>
+                    <div class="result-header">
+                        <span class="icon">✅</span>
+                        <span>URL shortened successfully!</span>
+                    </div>
+                    <div class="result-content">
+                        <div class="result-url">
+                            <a href="${data.short_url}" target="_blank">${data.short_url}</a>
+                        </div>
+                        <button class="copy-btn" onclick="copyToClipboard('${data.short_url}')">Copy</button>
+                    </div>
                 `;
                 
+                // Auto-hide the result message after 5 seconds
+                setTimeout(() => {
+                    resultDiv.style.display = 'none';
+                }, 5000);
+                
+                showNotification('URL shortened successfully!', 'success');
                 loadUrls(); // Refresh the list
             } catch (err) {
                 displayError(err.message);
+                showNotification(err.message, 'error');
+            } finally {
+                setLoadingState(false);
             }
         });
 
         async function loadUrls() {
+            setTableLoadingState(true);
             try {
                 const response = await fetch('/api/urls');
                 if (!response.ok) {
@@ -94,25 +187,47 @@
                 const tbody = document.getElementById('urls-tbody');
                 tbody.innerHTML = '';
 
-                urls.forEach(url => {
-                    const tr = document.createElement('tr');
-                    
-                    const shortUrl = new URL(url.short_url);
-                    const displayShortUrl = shortUrl.pathname.substring(1);
-
-                    tr.innerHTML = `
-                        <td><a href="/${displayShortUrl}" target="_blank">${displayShortUrl}</a></td>
-                        <td><a href="${url.long_url}" target="_blank" title="${url.long_url}">${truncate(url.long_url, 50)}</a></td>
-                        <td>${url.clicks}</td>
-                        <td>${new Date(url.created_at).toLocaleString()}</td>
-                        <td>
-                            <button class="delete-btn" onclick="deleteUrl('${displayShortUrl}')">Delete</button>
-                        </td>
+                if (urls.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="empty-state">
+                                <span class="icon">🔗</span>
+                                <h3>No shortened URLs yet</h3>
+                                <p>Create your first shortened URL using the form above</p>
+                            </td>
+                        </tr>
                     `;
-                    tbody.appendChild(tr);
-                });
+                } else {
+                    urls.forEach(url => {
+                        const tr = document.createElement('tr');
+                        
+                        const shortUrl = new URL(url.short_url);
+                        const displayShortUrl = shortUrl.pathname.substring(1);
+
+                        tr.innerHTML = `
+                            <td class="url-cell">
+                                <span class="short-url">
+                                    <a href="/${displayShortUrl}" target="_blank">${displayShortUrl}</a>
+                                </span>
+                            </td>
+                            <td class="url-cell">
+                                <a href="${url.long_url}" target="_blank" title="${url.long_url}">${truncate(url.long_url, 50)}</a>
+                            </td>
+                            <td>
+                                <span class="clicks-badge">${url.clicks}</span>
+                            </td>
+                            <td class="date-cell">${new Date(url.created_at).toLocaleString()}</td>
+                            <td>
+                                <button class="delete-btn" onclick="deleteUrl('${displayShortUrl}')">Delete</button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
             } catch (err) {
                 displayError(err.message);
+            } finally {
+                setTableLoadingState(false);
             }
         }
 
@@ -135,9 +250,11 @@
                     throw new Error(errorData.detail || 'Failed to delete URL.');
                 }
 
+                showNotification('URL deleted successfully!', 'success');
                 loadUrls(); // Refresh the list
             } catch (err) {
                 displayError(err.message);
+                showNotification(err.message, 'error');
             }
         }
 
