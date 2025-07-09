@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>URL Shortener</title>
-    <link rel="icon" href="/static/img/favicon.ico" type="image/x-icon">
-    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/logo-512.png">
+    <title>🔗 URL Shortener</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -86,6 +84,12 @@
             });
         }
 
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -148,6 +152,8 @@
 
                 const data = await response.json();
                 resultDiv.style.display = 'block';
+                // Sanitize the short_url to prevent XSS
+                const sanitizedSlug = escapeHtml(data.short_url);
                 resultDiv.innerHTML = `
                     <div class="result-header">
                         <span class="icon">✅</span>
@@ -155,9 +161,9 @@
                     </div>
                     <div class="result-content">
                         <div class="result-url">
-                            <a href="${data.short_url}" target="_blank">${data.short_url}</a>
+                            <a href="/${sanitizedSlug}" target="_blank">${sanitizedSlug}</a>
                         </div>
-                        <button class="copy-btn" onclick="copyToClipboard('${data.short_url}')">Copy</button>
+                        <button class="copy-btn" onclick="copyToClipboard('${sanitizedSlug}')">Copy</button>
                     </div>
                 `;
                 
@@ -201,8 +207,9 @@
                     urls.forEach(url => {
                         const tr = document.createElement('tr');
                         
-                        const shortUrl = new URL(url.short_url);
-                        const displayShortUrl = shortUrl.pathname.substring(1);
+                        const displayShortUrl = escapeHtml(url.short_url); // Sanitize the slug
+                        const sanitizedLongUrl = escapeHtml(url.long_url);
+                        const truncatedLongUrl = truncate(sanitizedLongUrl, 50);
 
                         tr.innerHTML = `
                             <td class="url-cell">
@@ -211,7 +218,7 @@
                                 </span>
                             </td>
                             <td class="url-cell">
-                                <a href="${url.long_url}" target="_blank" title="${url.long_url}">${truncate(url.long_url, 50)}</a>
+                                <a href="${sanitizedLongUrl}" target="_blank" title="${sanitizedLongUrl}">${truncatedLongUrl}</a>
                             </td>
                             <td>
                                 <span class="clicks-badge">${url.clicks}</span>

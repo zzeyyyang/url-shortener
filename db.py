@@ -30,6 +30,11 @@ def init_db() -> None:
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Create indexes for performance optimization
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_urls_slug ON urls(slug);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_urls_clicks ON urls(clicks DESC);")
 
 # NOTE: Calling init_db() here is convenient for simple applications.
 # For more complex applications, it's better to manage database

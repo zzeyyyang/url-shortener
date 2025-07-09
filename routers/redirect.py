@@ -1,16 +1,37 @@
-from fastapi import APIRouter, HTTPException, Response, Request
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import RedirectResponse, HTMLResponse, Response
 from typing import Union, List
 import db
-from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 import logging
 from models import URLResponse
-from config import config
+from typing import Dict, Optional
 
 router = APIRouter()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Simple in-memory cache for frequently accessed URLs
+url_cache: Dict[str, Optional[str]] = {}
+MAX_CACHE_SIZE = 1000
+
+def get_cached_url(slug: str) -> Optional[str]:
+    """Get URL from cache if available."""
+    return url_cache.get(slug)
+
+def cache_url(slug: str, url: str) -> None:
+    """Cache URL with basic size limit."""
+    if len(url_cache) >= MAX_CACHE_SIZE:
+        # Remove oldest entry (simple FIFO)
+        oldest_key = next(iter(url_cache))
+        del url_cache[oldest_key]
+    url_cache[slug] = url
+
+def invalidate_cache(slug: str) -> None:
+    """Remove a URL from the cache."""
+    if slug in url_cache:
+        del url_cache[slug]
 
 @router.get("/api/urls", response_model=List[URLResponse])
 async def get_all_urls():
@@ -19,12 +40,10 @@ async def get_all_urls():
         with db.get_db_connection() as conn:
             records = conn.execute("SELECT slug, long_url, clicks, created_at FROM urls ORDER BY created_at DESC").fetchall()
             
-            # Manually construct the short_url for each record
-            base_url = f"{config.BASE_URL}/"
             
             urls = [
                 URLResponse(
-                    short_url=f"{base_url}{rec['slug']}",
+                    short_url=rec["slug"],
                     long_url=rec["long_url"],
                     clicks=rec["clicks"],
                     created_at=rec["created_at"]
@@ -38,35 +57,29 @@ async def get_all_urls():
             detail=f"An error occurred while getting all URLs: {str(e)}"
         )
 
-@router.get("/{slug}/stats")
-async def get_url_stats(slug: str) -> JSONResponse:
-    """Get the current stats for a shortened URL."""
-    try:
-        decoded_slug = unquote(slug)
-        with db.get_db_connection() as conn:
-            url_record = conn.execute(
-                "SELECT clicks FROM urls WHERE slug = ?",
-                (decoded_slug,)
-            ).fetchone()
-            
-            if url_record is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="URL not found"
-                )
-            
-            return JSONResponse({
-                "clicks": url_record["clicks"]
-            })
-    except Exception as e:
-        logger.error(f"Error getting URL stats for slug {slug}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"An error occurred while getting URL stats: {str(e)}"
-        )
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Return transparent favicon to prevent browser from showing any icon."""
+    # Return a transparent 1x1 PNG pixel
+    transparent_png = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c626001000000050001d44d1eb40000000049454e44ae426082')
+    return Response(content=transparent_png, media_type="image/png")
+
+@router.get("/apple-touch-icon.png", include_in_schema=False)
+async def apple_touch_icon():
+    """Return transparent PNG for Apple touch icon."""
+    # Return a transparent 1x1 PNG pixel
+    transparent_png = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c626001000000050001d44d1eb40000000049454e44ae426082')
+    return Response(content=transparent_png, media_type="image/png")
+
+@router.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+async def apple_touch_icon_precomposed():
+    """Return transparent PNG for Apple touch icon precomposed."""
+    # Return a transparent 1x1 PNG pixel
+    transparent_png = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c626001000000050001d44d1eb40000000049454e44ae426082')
+    return Response(content=transparent_png, media_type="image/png")
 
 @router.get("/{slug:path}", response_model=None, include_in_schema=False)
-async def redirect_to_long_url(slug: str, request: Request, response: Response) -> Union[RedirectResponse, HTMLResponse]:
+async def redirect_to_long_url(slug: str) -> Union[RedirectResponse, HTMLResponse]:
     """
     Redirects to the long URL associated with the given slug and increments the click count.
     Implements caching and security headers.
@@ -74,7 +87,33 @@ async def redirect_to_long_url(slug: str, request: Request, response: Response) 
     try:
         decoded_slug = unquote(slug)
         
+        # Check cache first
+        cached_url = get_cached_url(decoded_slug)
+        if cached_url:
+            # Still need to increment clicks in database
+            with db.get_db_connection() as conn:
+                conn.execute(
+                    "UPDATE urls SET clicks = clicks + 1 WHERE slug = ?",
+                    (decoded_slug,)
+                )
+            
+            headers = {
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "X-XSS-Protection": "1; mode=block",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+            
+            return RedirectResponse(
+                url=cached_url,
+                status_code=307,
+                headers=headers
+            )
+        
         with db.get_db_connection() as conn:
+            # Single transaction: get URL and increment clicks atomically
             url_record = conn.execute(
                 "SELECT long_url FROM urls WHERE slug = ?",
                 (decoded_slug,)
@@ -98,7 +137,10 @@ async def redirect_to_long_url(slug: str, request: Request, response: Response) 
                     status_code=404
                 )
             
-            # Increment the click count
+            # Cache the URL for future requests
+            cache_url(decoded_slug, url_record["long_url"])
+            
+            # Increment the click count in same transaction
             conn.execute(
                 "UPDATE urls SET clicks = clicks + 1 WHERE slug = ?",
                 (decoded_slug,)
@@ -124,5 +166,5 @@ async def redirect_to_long_url(slug: str, request: Request, response: Response) 
         logger.error(f"Error processing redirect for slug {slug}: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An error occurred while processing the redirect: {str(e)}"
+            detail="An error occurred while processing the redirect"
         )
