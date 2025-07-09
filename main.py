@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from routers import shorten, redirect
+from config import config
 
 app = FastAPI()
 
@@ -21,6 +22,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(redirect.router)
 
 if __name__ == "__main__":
+    # Load environment variables
+    config.load_from_env()
+    
     # The `reload=True` parameter is for development purposes.
     # In a production environment, this should be False.
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host=config.HOST, port=config.PORT, reload=config.RELOAD)

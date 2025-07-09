@@ -1,15 +1,14 @@
 import sqlite3
 from contextlib import contextmanager
 from typing import Generator
-
-DATABASE_FILE = "urls.db"
+from config import config
 
 @contextmanager
 def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
     """Returns a connection to the SQLite database with proper error handling."""
     conn = None
     try:
-        conn = sqlite3.connect(DATABASE_FILE, timeout=5, isolation_level=None)
+        conn = sqlite3.connect(config.DATABASE_FILE, timeout=config.DATABASE_TIMEOUT, isolation_level=None)
         conn.row_factory = sqlite3.Row
         yield conn
     except sqlite3.Error as e:

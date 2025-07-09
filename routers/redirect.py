@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 import logging
 from models import URLResponse
+from config import config
 
 router = APIRouter()
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +20,7 @@ async def get_all_urls():
             records = conn.execute("SELECT slug, long_url, clicks, created_at FROM urls ORDER BY created_at DESC").fetchall()
             
             # Manually construct the short_url for each record
-            base_url = "http://localhost:8000/" # This should be configured more robustly
+            base_url = f"{config.BASE_URL}/"
             
             urls = [
                 URLResponse(
